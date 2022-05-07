@@ -1,0 +1,537 @@
+---
+title: "final_project"
+author: "Sangmin Lee(sl4876)"
+date: "4/21/2022"
+output: html_document
+---
+
+# Let's try find the best hedging strategy for crypto currency investors.
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Final Project (Sangmin Lee - sl4876)
+
+# Introduction 
+This project is composed of two sections 
+In the first section, the price data of major crypto currencies are collected and wrangled into a single data set. 
+Then, leveraging a clustering algorithm, I tried to see if i can categorize (classify) them into several groups based on their price movement over a certain period. 
+Here, I collected the price data from https://www.kaggle.com/datasets/sudalairajkumar/cryptocurrencypricehistory. 
+
+In the second section, I tried to select one representative coin from each group that I classified the coins into from the first section (cluster). Then I tried to see if it'd be possible to predict a price of major asset class (U.S 10 Years Yield, S&P500, Nadaq Tech 100, Tesla stock, Gold, U.S Dallor Index) based on the price movement of the representative coins. 
+I collected the related data from https://www.marketwatch.com/
+
+
+This project, I hope, will be meaningful and somewhat informative for those who invest in the cryptomarkets in a way that they can refer to my clustering results so they can diversify their portfolios by investing in coins from different clusters. 
+
+
+
+# Data Loading
+```{r final}
+
+df_bit <- read.csv("/Users/sangmin/Downloads/archive (4)/coin_Bitcoin.csv")
+df_eth <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Ethereum.csv")
+df_xrp <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_XRP.csv")
+df_wbit <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_WrappedBitcoin.csv")
+df_usdc <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_USDCoin.csv")
+df_uni <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Uniswap.csv")
+df_tron <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Tron.csv")
+df_teth <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Tether.csv")
+df_ste <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Stellar.csv")
+df_sol <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Solana.csv")
+df_pol <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Polkadot.csv")
+df_nem <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_NEM.csv")
+df_mon <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Monero.csv")
+df_lit <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Litecoin.csv")
+df_lot <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Iota.csv")
+df_eos <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_EOS.csv")
+df_dog <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Dogecoin.csv")
+df_cry <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_CryptocomCoin.csv")
+df_cos <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Cosmos.csv")
+df_chain <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_ChainLink.csv")
+df_car <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Cardano.csv")
+df_bin <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_BinanceCoin.csv")
+df_ave <- read.csv("/Users/sangmin/Downloads/archive (3)/coin_Aave.csv")
+
+
+
+df_list <- list(df_bit,df_eth,df_xrp,df_sol,df_pol, df_wbit,df_ave, df_usdc, df_tron,df_teth, df_ste,df_nem,  df_mon, df_lit, df_lot, df_eos, df_dog, df_cry, df_cos, df_chain,df_car,  df_bin)
+
+tokens <- c()
+for( df in df_list){
+  tokens<- c(tokens, df$Symbol[1])
+}
+```
+
+
+
+# Data Building & Wrangling
+```{r} 
+library(plyr)
+
+token_df_modify <- function(df){
+  price_change <- (( df$Close - df$Open )/ df$Open )*100 
+  ticker <- df$Symbol[1]
+
+  df$Date <- as.Date(df$Date, "%Y-%m-%d")
+  df[ticker]<-price_change
+  df <- df[c("Date", ticker)]
+
+  mat <- data.frame(matrix(df[[ticker]], nrow = 1, byrow = TRUE))
+  names(mat) <- df$Date
+  rownames(mat) <- ticker
+  return(mat)
+  
+}
+
+
+list_dfs <- list()
+
+for( df in df_list){
+  new_df <- token_df_modify(df)
+  list_dfs <- append(list_dfs, list(new_df))
+}
+
+
+merged_token_df <-rbind.fill(list_dfs)
+merged_token_df<-merged_token_df[ , colSums(is.na(merged_token_df)) == 0]
+rownames(merged_token_df) <- tokens
+print(dim(merged_token_df))
+print(head(merged_token_df))
+``` 
+Above, I tried to build a single data frame from the separate crypto datasets. 
+In the final dataset, each row represents different coins and each column represents price movement (% difference between Closing price and Open price) of each date. The dataset has 22 rows and 275 columns. 
+Since I merged different data sets into a single data frame, I am left with only those dates when all the coins have their price records. Thus, I could only have 275 days worth data. It is not sufficient amount of data given one cycle of crpyto market is approximately 4 years. However, I could not find any other source where I could get larger data, so I decided to proceed with the current data set. 
+
+
+
+
+# Clustering & Grouping
+```{r}
+rng <- 1:20
+tries <- 100 
+
+avg.totw.ss <- integer(length(rng))
+for ( v in rng){
+  
+  v.totw.ss <- integer(tries)
+  
+  for ( i in 1 : tries ){
+    k.temp <- kmeans(merged_token_df, centers = v)
+    v.totw.ss[i]<-k.temp$tot.withinss
+  }
+  
+  avg.totw.ss[v-1]<- mean(v.totw.ss)
+  
+}
+
+plot(rng, avg.totw.ss, type = "b", main = "Total Within SS by Various k",
+     ylab = "Average Total Within Sum of Squares", 
+     xlab = "Value of K")
+
+```
+Above, I tried to apply K-means clustering algorithm to classify each coin into different group with similar price movement. 
+I repeated the training for 100 times with different K value (the number of clusters) and calculated the average of total within-cluster sum of squares.
+The plot above doesn't show a very strong elbow. 
+Though, I would choose centers k=4 where it starts losing dramatic gains. 
+
+
+
+
+# Data Sub-Dividing & Visualization
+```{r}
+km_out <- kmeans(merged_token_df, centers = 4 )
+merged_token_df["cluster"] <- km_out$cluster
+
+df_sub1 <- merged_token_df[ merged_token_df$cluster == 1, ]
+df_sub2 <- merged_token_df[ merged_token_df$cluster == 2, ]
+df_sub3 <- merged_token_df[ merged_token_df$cluster == 3, ]
+df_sub4 <- merged_token_df[ merged_token_df$cluster == 4, ]
+```
+
+
+```{r}
+sample_coin_1 <- df_sub1[sample(c(1:dim(df_sub1)[1]),1), c(1:dim(df_sub1)[2]-1)]
+sample_coin_2 <- df_sub2[sample(c(1:dim(df_sub2)[1]),1), c(1:dim(df_sub2)[2]-1)]
+sample_coin_3 <- df_sub3[sample(c(1:dim(df_sub3)[1]),1), c(1:dim(df_sub3)[2]-1)]
+sample_coin_4 <- df_sub4[sample(c(1:dim(df_sub4)[1]),1), c(1:dim(df_sub4)[2]-1)]
+
+x <- as.Date(names(sample_coin_1))
+
+plot(x, sample_coin_1, type = "o", col = "blue", pch = "o", lty = 1)
+plot(x, sample_coin_2, type = "o", col = "red", pch = "o", lty = 1)
+plot(x, sample_coin_3, type = "o", col = "green", pch = "o", lty = 1)
+plot(x, sample_coin_4, type = "o", col = "yellow", pch = "o", lty = 1)
+``` 
+In the steps above, I tried sample one crypto currency from each cluster. Then I plotted their price movement separately (also, in different color). 
+the graphs above confirms that the each coin from different cluster exhibits different (somewhat uncorrelated) price movement over the observed period. 
+
+
+
+#Correlation Calculation
+```{r}
+df_crypto_groups  <- data.frame(  Date = as.Date(names(sample_coin_1), "%Y-%m-%d"), 
+                                  group1 = as.numeric(sample_coin_1),
+                                  group2 = as.numeric(sample_coin_2),
+                                  group3 = as.numeric(sample_coin_3),
+                                  group4 = as.numeric(sample_coin_4)
+                                )
+
+
+# correlation print out 
+print(cor(df_crypto_groups$group1, df_crypto_groups$group2))
+print(cor(df_crypto_groups$group1, df_crypto_groups$group3))
+print(cor(df_crypto_groups$group1, df_crypto_groups$group4))
+print(cor(df_crypto_groups$group2, df_crypto_groups$group3))
+print(cor(df_crypto_groups$group2, df_crypto_groups$group4))
+print(cor(df_crypto_groups$group3, df_crypto_groups$group4))
+
+``` 
+Above, I created a new data frame "df_crypto_groups" with each row representing price movement of a date and each column representing a coin from each cluster  (sampled from each group). Then calculated the correlation of each pair of coins from different groups to analyze whether or not the price movements of coins from different cluster are correlated or uncorrelated. 
+The results of calculation above shows that none of the pairs of coins shows any significant correlation. 
+This to some extent confirms we can use the clustering results to help crypto investors diversify their portfolio safely i.e they can invest in coins with uncorrelated price movements. 
+
+
+
+## Correlations with Major Assets Classes based on Crypto Market ( represented by the four coins from the four clusters. (one sampled from each group) ).
+
+# US 10 Year Yield (Bond)
+```{r}
+# US 10 Years Yield
+df_us_10yrs <- read.csv("/Users/sangmin/Downloads/Download Data - BOND_BX_XTUP_TMUBMUSD10Y (1).csv")
+df_us_10yrs$Date <- as.Date(df_us_10yrs$Date,"%m/%d/%Y")
+df_us_10yrs$Open <- as.numeric(gsub("%","",df_us_10yrs$Open))
+df_us_10yrs$Close <- as.numeric(gsub("%","",df_us_10yrs$Close))
+df_us_10yrs["us_10yrs"] <- ((df_us_10yrs$Close - df_us_10yrs$Open) / df_us_10yrs$Open)*100
+df_us_10yrs <- df_us_10yrs[c("Date", "us_10yrs")]
+df_merged <- merge(df_crypto_groups, df_us_10yrs, by = "Date")
+
+
+print(cor(df_merged$group1, df_merged$us_10yrs))
+print(cor(df_merged$group2, df_merged$us_10yrs))
+print(cor(df_merged$group3, df_merged$us_10yrs))
+print(cor(df_merged$group4, df_merged$us_10yrs))
+
+
+cors_us_10yrs<-c(cor(df_merged$group1, df_merged$us_10yrs), 
+                cor(df_merged$group2, df_merged$us_10yrs), 
+                cor(df_merged$group3, df_merged$us_10yrs),
+                cor(df_merged$group4, df_merged$us_10yrs))
+
+#avg.cor_us_10yrs <- mean(c(abs(cors_us_10yrs[1]),abs(cors_us_10yrs[2]), abs(cors_us_10yrs[3]),abs(cors_us_10yrs[4])))
+
+```
+Above, I first created a dataframe with each row representing rate movement of U.S 10 years yield rate of a date. Then I merged it with the data frame 'df_crypto_group' to get a new data frame 'df_merged'. Then I calcuated the correlation between each coin and the US 10 years yield rate. The result indicates no significant correaltion. (a possible sign for less suitability for regression modeling)
+
+
+
+```{r}
+# US NDTX 100 
+df_ndxt <- read.csv("/Users/sangmin/Downloads/HistoricalData_1651086535570.csv")
+df_ndxt$Date <- as.Date(df_ndxt$Date,"%m/%d/%Y")
+df_ndxt["NDTX"] <- ((df_ndxt$Close.Last - df_ndxt$Open) / df_ndxt$Open)*100
+df_ndxt <- df_ndxt[c("Date", "NDTX")]
+df_merged <- merge(df_merged, df_ndxt, by = "Date")
+
+
+
+print(cor(df_merged$group1, df_merged$NDTX))
+print(cor(df_merged$group2, df_merged$NDTX))
+print(cor(df_merged$group3, df_merged$NDTX))
+print(cor(df_merged$group4, df_merged$NDTX))
+
+
+cors_ndtx<-c(cor(df_merged$group1, df_merged$NDTX), 
+                cor(df_merged$group2, df_merged$NDTX), 
+                cor(df_merged$group3, df_merged$NDTX),
+                cor(df_merged$group4, df_merged$NDTX))
+
+``` 
+Above, I repeated the same step but this time with the dataset of Nasdaq Tech 100 index. 
+the correlation calculation shows low level (almost zero ) correlation between each coin price movement and the index rate movement. 
+
+
+
+
+#S&P 500 
+```{r}
+df_sp_500 <- read.csv("/Users/sangmin/Downloads/Download Data - INDEX_US_S&P US_SPX (2).csv")
+df_sp_500$Date <- as.Date(df_sp_500$Date, "%m/%d/%Y")
+df_sp_500$Open <- as.numeric(gsub(",","",df_sp_500$Open))
+df_sp_500$Close <- as.numeric(gsub(",","",df_sp_500$Close))
+df_sp_500["sp_500"]<- ((df_sp_500$Close - df_sp_500$Open)/df_sp_500$Open)*100
+df_sp_500 <- df_sp_500[c("Date","sp_500")]
+df_merged <- merge(df_merged, df_sp_500, by = "Date")
+
+print(cor(df_merged$group1, df_merged$sp_500))
+print(cor(df_merged$group2, df_merged$sp_500))
+print(cor(df_merged$group3, df_merged$sp_500))
+print(cor(df_merged$group4, df_merged$sp_500))
+
+cors_sp_500 <-c(cor(df_merged$group1, df_merged$sp_500), 
+                cor(df_merged$group2, df_merged$sp_500), 
+                cor(df_merged$group3, df_merged$sp_500),
+                cor(df_merged$group4, df_merged$sp_500))
+
+``` 
+Above, I repeated the same step but this time with the dataset of S&P500
+the correlation calculation shows low level correlation between each coin price movement and the index rate movement. Though this time the correlations are not as low as with other asset classes. Thus, It could be worth training a regresson model with S&P500 and crypto coins price data.  
+
+
+
+# TESLA 
+```{r}
+df_tesla <- read.csv("/Users/sangmin/Downloads/TSLA 2.csv") 
+df_tesla$Date<- as.Date(df_tesla$Date, "%Y-%m-%d")
+df_tesla["tesla"] <- ((df_tesla$Close - df$Open )/ df$Open )*100
+df_tesla <- df_tesla[c("Date","tesla")]
+df_merged <- merge(df_merged, df_tesla, by = "Date")
+
+print(cor(df_merged$group1, df_merged$tesla))
+print(cor(df_merged$group2, df_merged$tesla))
+print(cor(df_merged$group3, df_merged$tesla))
+print(cor(df_merged$group4, df_merged$tesla))
+
+cors_tesla <-c(cor(df_merged$group1, df_merged$tesla), 
+                cor(df_merged$group2, df_merged$tesla), 
+                cor(df_merged$group3, df_merged$tesla),
+                cor(df_merged$group4, df_merged$tesla))
+
+
+
+
+``` 
+Above, I repeated the same step but this time with the data set of Tesla stock price. 
+The company's stock price is normally assumed to have similar price movement with crypto currency due to Elon Musk's social media engagement related to Crypto Market. 
+However, unlike the general assumption, the correlation calculation shows low level (almost zero ) correlation between each coin price movement and the stock price movement. 
+
+
+
+#GOLD 
+```{r}
+df_gold <- read.csv("/Users/sangmin/Downloads/Gold Price.csv")
+df_gold$Date <- as.Date(df_gold$Date, "%Y-%m-%d")
+df_gold["gold"] <- df_gold$Chg.
+df_gold <- df_gold[c("Date", "gold")]
+
+df_merged <- merge(df_merged, df_gold, by = "Date")
+
+print(cor(df_merged$group1, df_merged$gold))
+print(cor(df_merged$group2, df_merged$gold))
+print(cor(df_merged$group3, df_merged$gold))
+print(cor(df_merged$group4, df_merged$gold))
+
+
+cors_gold <-c(cor(df_merged$group1, df_merged$gold), 
+                cor(df_merged$group2, df_merged$gold), 
+                cor(df_merged$group3, df_merged$gold),
+                cor(df_merged$group4, df_merged$gold))
+
+``` 
+Above, I repeated the same step but this time with the data set of Gold price. 
+the correlation calculation shows low level (almost zero ) correlation between each coin price movement and the Gold price movement. 
+
+
+
+# Regression Modeling with S&P 500 
+From the correlation calcuation with major asset classes, 
+the Cryto coins have highest correlation with S&P500 index out of the major asset classes. 
+Thus, I tried to train a regression model hoping to make a model that can predict whether or not S&P500 will go up or down depeding on the crypto currencies' price movement of the day. 
+```{r}
+to_binary <- function(x){
+  if( x >= 0 ){
+    return(1)
+  }
+  else {
+    return(0)
+  }
+}
+
+df_merged$sp_500 <- sapply(df_merged$sp_500, to_binary)
+df <- df_merged[c("group1","group2","group3", "group4", "sp_500")]
+
+``` 
+First, in the above, I tried to change the target value (S&P 500 index movement) into binary value (0 or 1 ) so we can train a classification model. 
+
+
+
+# Train vs Test dataset Split
+```{r}
+test_idx <- sample(c(1:dim(df)[1]), 35, replace = FALSE)
+train_idx <- c(1:dim(df)[1])[-test_idx]
+
+train_df <- df[train_idx,]
+test_df <- df[test_idx,]
+``` 
+ 
+
+
+# Models Training1 : Support Vector Machine
+```{r}
+library(e1071)
+clf = svm(formula = sp_500 ~ .,
+                 data = train_df,
+                 type = 'C-classification',
+                 kernel = 'linear')
+
+
+pred <- predict(clf, test_df, type="response")
+
+
+accuracy <- mean(pred == test_df$sp_500)
+print(accuracy)
+```
+Accuracy of the Support Vector Machine : 0.5714286
+
+
+
+# Models Training2 : Random Forest
+```{r}
+library(randomForest)
+library(dplyr)
+library(gbm)
+
+my_rf <- randomForest(sp_500 ~ ., train_df, importance=TRUE)
+pred <- predict(my_rf, test_df, type="response")
+
+rounded_pred <- round(pred)
+
+accuracy <- mean(rounded_pred == test_df$sp_500)
+print(accuracy)
+```
+Accuracy of the Random Forest Model :0.6
+
+
+# Models Training3 : Logistics Regression
+```{r}
+my_logit <- glm(formula =  sp_500~ ., family = "binomial", data = train_df)
+
+pred <- predict(my_logit, test_df, type="response")
+rounded_pred <- round(pred)
+
+accuracy <- mean(rounded_pred == test_df$sp_500)
+print(accuracy)
+```
+The logistic model trained above produced accuracy of 0.6571429.
+
+
+
+
+# Models Training4 : Boosted random Forest
+```{r}
+library(gbm)
+my_boost <- gbm::gbm(sp_500 ~., data=train_df, n.trees= 1000, cv.folds=4)
+gbm.perf(my_boost, method="cv")
+boost_pred <- predict(my_boost, test_df)
+round_pred <- round(boost_pred) 
+
+accuracy<- mean(round_pred == test_df$sp_500)
+print(accuracy)
+``` 
+Boosted Random Forest Accuracy : 0.4285714
+
+
+
+
+# Feature Engineering to improve the model performance
+```{r}
+correlation_sp500 <- function(x){
+  return(cor(x[as.character(df_merged$Date)], df$sp_500))
+}
+  
+cor1_sp_500 <- apply(df_sub1, 1, correlation_sp500 )
+cor2_sp_500 <- apply(df_sub2, 1, correlation_sp500 )
+cor3_sp_500 <- apply(df_sub3, 1, correlation_sp500 )
+cor4_sp_500 <- apply(df_sub4, 1, correlation_sp500 )
+
+
+max_cor1 <- which.max(abs(cor1_sp_500))
+max_cor2 <- which.max(abs(cor2_sp_500))
+max_cor3 <- which.max(abs(cor3_sp_500))
+max_cor4 <- which.max(abs(cor4_sp_500))
+
+
+group1_rep <- merged_token_df[names(cor1_sp_500)[max_cor1],]
+group2_rep <- merged_token_df[names(cor2_sp_500)[max_cor2],]
+group3_rep <- merged_token_df[names(cor3_sp_500)[max_cor3],]
+group4_rep <- merged_token_df[names(cor4_sp_500)[max_cor4],]
+
+
+df_crypto_reps <- data.frame(  Date = as.Date(names(group1_rep), "%Y-%m-%d"), 
+                                  group1 = as.numeric(group1_rep),
+                                  group2 = as.numeric(group2_rep),
+                                  group3 = as.numeric(group3_rep),
+                                  group4 = as.numeric(group4_rep)
+                                )
+
+df_merged_reps<- merge(df_crypto_reps, df_sp_500, by = "Date")
+
+``` 
+Above I tried re-selected the representative coins from each cluster (not by simply sampling one coin from each group). 
+I tried get coins that have the highest correlation with S&P500 index. then I created a new data set with the newly selected features ( new representative coins ). 
+
+
+
+
+# Re-run the model to see if any improvement. 
+```{r}
+
+df_merged_reps$sp_500 <- sapply(df_merged_reps$sp_500, to_binary)
+df <- df_merged_reps[c("group1","group2","group3", "group4", "sp_500")]
+
+# Train vs Test 
+test_idx <- sample(c(1:dim(df)[1]), 35, replace = FALSE)
+train_idx <- c(1:dim(df)[1])[-test_idx]
+
+train_df <- df[train_idx,]
+test_df <- df[test_idx,]
+
+my_new_logit <- glm(formula =  sp_500~ ., family = "binomial", data = train_df)
+
+pred <- predict(my_new_logit, test_df, type="response")
+rounded_pred <- round(pred)
+
+accuracy <- mean(rounded_pred == test_df$sp_500)
+print(accuracy)
+
+``` 
+The logistics model with the newly selected representative coins doesn't produce any significant improvement compared to the previous logit model. 
+Thus, I decided to use the previous model which produced better accuracy of 0.64 (approximately).
+
+
+
+## Conclusion & Concerns in data snooping
+In the clustering part, I discovered that major crypto currencies can be group into four different classes based on their price movement over the observed period. This result can be referred by Crypto investors who are hoping to invest in diversified Crypto portfolios with lower correlation between each coins. However given the relatively small size of the data used in the training process, It might cause misleading investment guidance as the data set used doesn't sufficiently cover a long period of time line which is normally 4 years. 
+
+In the Regression part, I tried to train a variety of classification models hoping to predict whether or not S&P500 index will go down or up depending on the Crypto Market's movement of the day. Thus I selected the four representative coins from each group we defined in the first section. Throughout all the training process, the logistics model returned the best accuracy which is not as good as I hoped but it is still better than random prediction (which has an accuracy of 0.5 i.e up or down). 
+Here, I also wish I had more bigger data set which covers longer period of market movement. If I had access to paid dataset with longer time line, I think I would have been able to train a better performing model. 
+
+As such, with all these results, I hope this can be a basic reference for crypto investors and someone who'd be interested in S&P index market movement based on the Crypto Market.
+
+
+
+# Critique on other team's project 
+What was the initial motivation for tackling the project?
+- The initial motivation of the team's project (Vida) is to make a career guidance machine which you input your current interest, major, gender, race or other personal information then model would return the possible career trajectory for Data Scientist students regarding possible job title, salary, or turnover rate etc. 
+
+
+What data set were used?
+- a variety of data scientist job data sets including employees' personal profiles were used. 
+
+
+What aspect of the project is considered a data-mining and what is discovered?
+- I would say this project lacks data-mining aspect since It doesn't really discover hidden insights. 
+
+
+Is there anything you would have done differently? For example
+- Instead of providing the general guidance on a career path (which I think lacks a data-mining aspect), I would choose to analyze a certain characteristics of each job title (which I believe has a stronger data-mining aspect). 
+
+
+
+## Github link: 
+
+
+
