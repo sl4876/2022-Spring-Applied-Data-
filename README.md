@@ -9,4 +9,6 @@ In the second section, I tried to select one representative coin from each group
 I collected the related data from https://www.marketwatch.com/
 
 
-This project, I hope, will be meaningful and somewhat informative for those who invest in the cryptomarkets in a way that they can refer to my clustering results so they can diversify their portfolios by investing in coins from different clusters. 
+This project, I hope, will be meaningful and somewhat informative for those who invest in the cryptomarkets in a way that they can refer to my clustering results so they can diversify their portfolios by investing in coins from different clusters.
+
+"Final_Project_sl4876.Rmd" is the final code. 
